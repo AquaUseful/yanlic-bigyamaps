@@ -78,6 +78,10 @@ class YaMapMap(object):
         if self.scale > 0:
             self.scale -= 1
 
+    def set_scale(self, scale: int):
+        if 0 <= scale <= 17:
+            self.scale = scale
+
     def cycle_layers(self):
         self.layer_comb = (self.layer_comb + 1) % len(self.aval_layers)
 
@@ -98,6 +102,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def initUi(self):
         uic.loadUi("MainWindow.ui", self)
         self.action_exit.triggered.connect(sys.exit)
+        self.horizontalSlider.valueChanged.connect(self.update_scale)
 
     def keyPressEvent(self, event):
         upd = False
@@ -129,6 +134,10 @@ class MainWindow(QtWidgets.QMainWindow):
             upd = True
         if upd:
             self.update_image()
+
+    def update_scale(self):
+        self.map.set_scale(self.sender().value())
+        self.update_image()
 
     def update_image(self):
         filename = self.map.save_image("map")
