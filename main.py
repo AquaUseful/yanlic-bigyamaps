@@ -6,7 +6,7 @@ import operator
 
 
 class YaMapPoint(object):
-    def __init__(self, ll: tuple, style: str, color: str, size: int, content: int):
+    def __init__(self, ll: tuple, style: str, color: str = "", size: int = "", content: int = ""):
         self.ll = ll
         self.style = style
         self.color = color
@@ -18,12 +18,45 @@ class YaMapPoint(object):
 
 
 class YaMapSearch(object):
-    pass
+    def __init__(self):
+        self.server_addr = "https://geocode-maps.yandex.ru/1.x/"
+        self.apikey = "40d1649f-0493-4b70-98ba-98533de7710b"
+
+    def search_address(self, address: str):
+        self.geocode = address
+        self._request()
+
+    def search_ll(self, ll: tuple):
+        self.geocode = ",".join(map(str, ll))
+
+    def get_ll(self, index: int):
+        feature_member = self.json_resp["response"]["GeoObjectCollection"]["featureMember"][index]
+        ll_string = feature_member["GeoObject"]["Point"]["pos"]
+        return tuple(map(float, ll_string.split()))
+
+    def get_address(self, index: int):
+        feature_member = self.json_resp["response"]["GeoObjectCollection"]["featureMember"][index]
+        return feature_member["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["formatted"]
+
+    def get_point(self, index: int, style: str, color: str = "", size: int = "", content: int = ""):
+        ll = self.get_ll(index)
+        return YaMapPoint(ll, style, color, size, content)
+
+    def _request(self):
+        req_params = {
+            "apikey": self.apikey,
+            "geocode": self.geocode,
+            "format": "json"
+        }
+        response = requests.get(self.server_addr, req_params)
+        if not response:
+            print(f"Error: {response.status_code} ({response.reason})")
+        self.json_resp = response.json()
 
 
 class YaMapMap(object):
     def __init__(self, ll: tuple, scale: int, layer_comb: int, points: tuple = ()):
-        self.server_addr = "http://static-maps.yandex.ru/1.x/"
+        self.server_addr = "https://static-maps.yandex.ru/1.x/"
         self.aval_layers = (("map",), ("sat",), ("sat", "skl"),
                             ("sat", "trf", "skl"), ("map", "trf", "skl"))
         if -90 <= ll[0] <= 90 and -180 <= ll[1] <= 180:
@@ -49,9 +82,9 @@ class YaMapMap(object):
         pt_str = "~".join(map(lambda point: point.get_string(), self.points))
         req_params = {}
         req_params["l"] = l_str
+        req_params["z"] = self.scale
         if not autopos or not pt_str:
             req_params["ll"] = ll_str
-            req_params["z"] = self.scale
         if pt_str:
             req_params["pt"] = pt_str
         response = requests.get(self.server_addr, req_params)
@@ -82,11 +115,18 @@ class YaMapMap(object):
         if 0 <= scale <= 17:
             self.scale = scale
 
+    def set_ll(self, ll: tuple):
+        if -90 <= ll[0] <= 90 and -180 <= ll[1] <= 180:
+            self.ll = ll
+
     def cycle_layers(self):
         self.layer_comb = (self.layer_comb + 1) % len(self.aval_layers)
 
     def get_scale(self):
         return self.scale
+
+    def set_points(self, points: tuple):
+        self.points = points
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -95,7 +135,9 @@ class MainWindow(QtWidgets.QMainWindow):
         ll = (37.530887, 55.703118)
         scale = 17
         layer_comb = 0
+        self.map_autopos = False
         self.map = YaMapMap(ll, scale, layer_comb)
+        self.search = YaMapSearch()
         self.initUi()
         self.update_image()
 
@@ -103,16 +145,17 @@ class MainWindow(QtWidgets.QMainWindow):
         uic.loadUi("MainWindow.ui", self)
         self.action_exit.triggered.connect(sys.exit)
         self.horizontalSlider.valueChanged.connect(self.update_scale)
+        self.pushButton_cycle_view.clicked.connect(self.cycle_layers)
+        self.pushButton_search.clicked.connect(self.search_address)
+        self.pushButton_reset.clicked.connect(self.reset_search)
 
     def keyPressEvent(self, event):
         upd = False
         key = event.key()
         if key == QtCore.Qt.Key_PageDown:
-            self.map.zoom_out()
-            upd = True
+            self.horizontalSlider.setValue(self.horizontalSlider.value() - 1)
         elif key == QtCore.Qt.Key_PageUp:
-            self.map.zoom_in()
-            upd = True
+            self.horizontalSlider.setValue(self.horizontalSlider.value() + 1)
         elif key == QtCore.Qt.Key_Space:
             self.map.cycle_layers()
             upd = True
@@ -135,12 +178,36 @@ class MainWindow(QtWidgets.QMainWindow):
         if upd:
             self.update_image()
 
+    def move_map(self, delta):
+        self.map.move_map(delta)
+        self.update_image()
+
+    def cycle_layers(self):
+        self.map.cycle_layers()
+        self.update_image()
+
     def update_scale(self):
         self.map.set_scale(self.sender().value())
         self.update_image()
 
+    def search_address(self):
+        req = self.lineEdit_request.text()
+        self.search.search_address(req)
+        point = self.search.get_point(0, "comma")
+        ll = self.search.get_ll(0)
+        address = self.search.get_address(0)
+        self.map.set_ll(ll)
+        self.map.set_points((point,))
+        self.lineEdit_address.setText(address)
+        self.update_image()
+
+    def reset_search(self):
+        self.map.set_points(())
+        self.lineEdit_address.clear()
+        self.update_image()
+
     def update_image(self):
-        filename = self.map.save_image("map")
+        filename = self.map.save_image("map", self.map_autopos)
         pixmap = QtGui.QPixmap(filename)
         self.label_map.setPixmap(pixmap)
 
