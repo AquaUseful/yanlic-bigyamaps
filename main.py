@@ -5,6 +5,12 @@ import typing
 import operator
 
 
+def scale_to_spn(scale: int, image_size: tuple):
+    lon = (360 / 2 ** scale) * (image_size[0] / 256)
+    lat = (180 / 2 ** scale) * (image_size[1] / 256)
+    return (lon, lat)
+
+
 class YaMapPoint(object):
     def __init__(self, ll: tuple, style: str, color: str = "", size: int = "", content: int = ""):
         self.ll = ll
@@ -14,7 +20,7 @@ class YaMapPoint(object):
         self.content = content
 
     def get_string(self):
-        return f"{self.ll[0]},{self.ll[1]},{self.style}{self.color}{self.color}{self.content}"
+        return f"{self.ll[0]},{self.ll[1]},{self.style}{self.color}{self.size}{self.content}"
 
 
 class YaMapSearch(object):
@@ -78,7 +84,7 @@ class YaMapMap(object):
             self.layer_comb = layer_comb
         else:
             raise ValueError()
-        if all(map(lambda point: point is YaMapPoint, points)):
+        if all(map(lambda point: isinstance(point, YaMapPoint), points)):
             self.points = points
         else:
             raise TypeError()
@@ -90,6 +96,7 @@ class YaMapMap(object):
         req_params = {}
         req_params["l"] = l_str
         req_params["z"] = self.scale
+        # req_params["size"] = "256,256"
         if not autopos or not pt_str:
             req_params["ll"] = ll_str
         if pt_str:
@@ -168,19 +175,23 @@ class MainWindow(QtWidgets.QMainWindow):
             self.map.cycle_layers()
             upd = True
         elif key == QtCore.Qt.Key_Right:
-            delta = (0.01, 0)
+            spn = scale_to_spn(self.map.get_scale(), (650, 450))
+            delta = (spn[0] / 2, 0)
             self.map.move_map(delta)
             upd = True
         elif key == QtCore.Qt.Key_Left:
-            delta = (-0.01, 0)
+            spn = scale_to_spn(self.map.get_scale(), (650, 450))
+            delta = (-spn[0] / 2, 0)
             self.map.move_map(delta)
             upd = True
         elif key == QtCore.Qt.Key_Up:
-            delta = (0, 0.01)
+            spn = scale_to_spn(self.map.get_scale(), (650, 450))
+            delta = (0, spn[1] / 2)
             self.map.move_map(delta)
             upd = True
         elif key == QtCore.Qt.Key_Down:
-            delta = (0, -0.01)
+            spn = scale_to_spn(self.map.get_scale(), (650, 450))
+            delta = (0, -spn[1] / 2)
             self.map.move_map(delta)
             upd = True
         if upd:
