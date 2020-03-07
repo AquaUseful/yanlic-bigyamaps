@@ -42,6 +42,13 @@ class YaMapSearch(object):
         ll = self.get_ll(index)
         return YaMapPoint(ll, style, color, size, content)
 
+    def get_postal_code(self, index: int):
+        feature_member = self.json_resp["response"]["GeoObjectCollection"]["featureMember"][index]
+        try:
+            return feature_member["GeoObject"]["metaDataProperty"]["GeocoderMetaData"]["Address"]["postal_code"]
+        except KeyError:
+            return ""
+
     def _request(self):
         req_params = {
             "apikey": self.apikey,
@@ -59,7 +66,7 @@ class YaMapMap(object):
         self.server_addr = "https://static-maps.yandex.ru/1.x/"
         self.aval_layers = (("map",), ("sat",), ("sat", "skl"),
                             ("sat", "trf", "skl"), ("map", "trf", "skl"))
-        if -90 <= ll[0] <= 90 and -180 <= ll[1] <= 180:
+        if -180 <= ll[0] <= 180 and -90 <= ll[1] <= 90:
             self.ll = ll
         else:
             raise ValueError()
@@ -100,7 +107,7 @@ class YaMapMap(object):
 
     def move_map(self, ll_delta: tuple):
         new_ll = tuple(map(operator.add, self.ll, ll_delta))
-        if -90 <= new_ll[0] <= 90 and -180 <= new_ll[1] <= 180:
+        if -180 <= new_ll[0] <= 180 and -90 <= new_ll[1] <= 90:
             self.ll = new_ll
 
     def zoom_in(self):
@@ -116,7 +123,7 @@ class YaMapMap(object):
             self.scale = scale
 
     def set_ll(self, ll: tuple):
-        if -90 <= ll[0] <= 90 and -180 <= ll[1] <= 180:
+        if -180 <= ll[0] <= 180 and -90 <= ll[1] <= 90:
             self.ll = ll
 
     def cycle_layers(self):
@@ -148,6 +155,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_cycle_view.clicked.connect(self.cycle_layers)
         self.pushButton_search.clicked.connect(self.search_address)
         self.pushButton_reset.clicked.connect(self.reset_search)
+        self.checkBox_add_index.clicked.connect(self.update_address)
 
     def keyPressEvent(self, event):
         upd = False
@@ -198,8 +206,16 @@ class MainWindow(QtWidgets.QMainWindow):
         address = self.search.get_address(0)
         self.map.set_ll(ll)
         self.map.set_points((point,))
-        self.lineEdit_address.setText(address)
+        print(ll)
         self.update_image()
+        self.update_address()
+
+    def update_address(self):
+        address = self.search.get_address(0)
+        postal_code = self.search.get_postal_code(0)
+        if self.checkBox_add_index.isChecked() and postal_code:
+            address += "; " + postal_code
+        self.lineEdit_address.setText(address)
 
     def reset_search(self):
         self.map.set_points(())

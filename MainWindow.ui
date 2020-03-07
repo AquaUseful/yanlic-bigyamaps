@@ -158,6 +158,13 @@
            </layout>
           </item>
           <item>
+           <widget class="QCheckBox" name="checkBox_add_index">
+            <property name="text">
+             <string>Добавлять индекс к адресу</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QGroupBox" name="groupBox_5">
             <property name="title">
              <string>Результаты</string>
