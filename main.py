@@ -3,6 +3,7 @@ import sys
 import requests
 import typing
 import operator
+import math
 
 
 def scale_to_spn(scale: int, image_size: tuple):
@@ -34,6 +35,7 @@ class YaMapSearch(object):
 
     def search_ll(self, ll: tuple):
         self.geocode = ",".join(map(str, ll))
+        self._request()
 
     def get_ll(self, index: int):
         feature_member = self.json_resp["response"]["GeoObjectCollection"]["featureMember"][index]
@@ -68,7 +70,7 @@ class YaMapSearch(object):
 
 
 class YaMapMap(object):
-    def __init__(self, ll: tuple, scale: int, layer_comb: int, points: tuple = ()):
+    def __init__(self, ll: tuple, scale: int, layer_comb: int, points: tuple = (), img_size: tuple = (600, 450)):
         self.server_addr = "https://static-maps.yandex.ru/1.x/"
         self.aval_layers = (("map",), ("sat",), ("sat", "skl"),
                             ("sat", "trf", "skl"), ("map", "trf", "skl"))
@@ -88,15 +90,20 @@ class YaMapMap(object):
             self.points = points
         else:
             raise TypeError()
+        if 1 <= img_size[0] <= 600 and 1 <= img_size[1] <= 450:
+            self.img_size = img_size
+        else:
+            raise ValueError()
 
     def save_image(self, filename: str, autopos=False):
         ll_str = ",".join(map(str, self.ll))
         l_str = ",".join(self.aval_layers[self.layer_comb])
         pt_str = "~".join(map(lambda point: point.get_string(), self.points))
+        size_str = ",".join(map(str, self.img_size))
         req_params = {}
         req_params["l"] = l_str
         req_params["z"] = self.scale
-        # req_params["size"] = "256,256"
+        req_params["size"] = size_str
         if not autopos or not pt_str:
             req_params["ll"] = ll_str
         if pt_str:
@@ -142,6 +149,21 @@ class YaMapMap(object):
     def set_points(self, points: tuple):
         self.points = points
 
+    def get_size(self, point):
+        return self.img_size
+
+    def coords_to_ll(self, coords: tuple):  # КРИВАЯ ФИГНЯ, КТО НАПИШЕТ НОРМАЛЬНУЮ - МОЛОДЕЦ
+        spn = scale_to_spn(self.scale, self.img_size)
+        coords = (coords[0], self.img_size[1] - coords[1])
+        ll_corner_delta = tuple(map(
+            lambda spn, coords, img_size: spn * (coords / img_size), spn, coords, self.img_size))
+        ll_decart_delta = tuple(
+            map(lambda corner_delta, spn: corner_delta - spn / 2, ll_corner_delta, spn))
+        ll = map(lambda ll, decart_delta: ll +
+                 decart_delta, self.ll, ll_decart_delta)
+        print(coords, spn, ll_corner_delta, ll_decart_delta)
+        return tuple(ll)
+
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
@@ -163,6 +185,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_search.clicked.connect(self.search_address)
         self.pushButton_reset.clicked.connect(self.reset_search)
         self.checkBox_add_index.clicked.connect(self.update_address)
+        self.label_map.lclicked.connect(self.search_point)
+
+    def search_point(self, coords):
+        ll = self.map.coords_to_ll(coords)
+        self.search.search_ll(ll)
+        point = YaMapPoint(ll, "comma")
+        self.map.set_points((point,))
+        self.update_address()
+        self.update_image()
 
     def keyPressEvent(self, event):
         upd = False
@@ -214,7 +245,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.search.search_address(req)
         point = self.search.get_point(0, "comma")
         ll = self.search.get_ll(0)
-        address = self.search.get_address(0)
         self.map.set_ll(ll)
         self.map.set_points((point,))
         print(ll)
