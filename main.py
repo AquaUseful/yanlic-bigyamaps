@@ -6,6 +6,18 @@ import operator
 import math
 
 
+def lonlat_distance(a: tuple, b: tuple):
+    degree_to_meters_factor = 111 * 1000
+    a_lon, a_lat = a
+    b_lon, b_lat = b
+    radians_lattitude = math.radians((a_lat + b_lat) / 2.)
+    lat_lon_factor = math.cos(radians_lattitude)
+    dx = abs(a_lon - b_lon) * degree_to_meters_factor * lat_lon_factor
+    dy = abs(a_lat - b_lat) * degree_to_meters_factor
+    distance = math.sqrt(dx * dx + dy * dy)
+    return distance
+
+
 def scale_to_spn(scale: int, image_size: tuple):
     lon = (360 / 2 ** scale) * (image_size[0] / 256)
     lat = (180 / 2 ** scale) * (image_size[1] / 256)
@@ -22,6 +34,64 @@ class YaMapPoint(object):
 
     def get_string(self):
         return f"{self.ll[0]},{self.ll[1]},{self.style}{self.color}{self.size}{self.content}"
+
+
+class YaMapOrg(object):
+    def __init__(self):
+        self.server_addr = "https://search-maps.yandex.ru/v1/"
+        self.apikey = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
+
+    def search_ll(self, ll: tuple, text: str):
+        self.ll = ll
+        self.ll_str = ",".join(map(str, ll))
+        self.text = text
+        self._request()
+
+    def get_ll(self, radius: float):
+        self._filter(radius)
+        return self.feature_ll
+
+    def get_name(self, radius: float):
+        self._filter(radius)
+        return self.feature_name
+
+    def get_address(self, radius: float):
+        self._filter(radius)
+        return self.feature_address
+
+    def get_point(self, radius: float, style: str, color: str = "", size: int = "", content: int = ""):
+        self._filter(radius)
+        if self.feature_ll is None:
+            return
+        point = YaMapPoint(self.feature_ll, style, color, size, content)
+        return point
+
+    def _filter(self, radius: float):
+        self.feature_ll = None
+        self.feature_name = None
+        self.feature_address = None
+        features = self.json_resp["features"]
+        for feature in features:
+            feature_ll = feature["geometry"]["coordinates"]
+            distance = lonlat_distance(self.ll, feature_ll)
+            if distance <= radius:
+                self.feature_ll = feature_ll
+                self.feature_name = feature["properties"]["name"]
+                self.feature_address = feature["properties"]["CompanyMetaData"]["address"]
+
+    def _request(self):
+        self.filtered = False
+        req_params = {
+            "apikey": self.apikey,
+            "ll": self.ll_str,
+            "text": self.text,
+            "lang": "ru_RU",
+            "type": "biz"
+        }
+        response = requests.get(self.server_addr, req_params)
+        if not response:
+            print(f"Error: {response.status_code} ({response.reason})")
+        self.json_resp = response.json()
 
 
 class YaMapSearch(object):
@@ -174,6 +244,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_autopos = False
         self.map = YaMapMap(ll, scale, layer_comb)
         self.search = YaMapSearch()
+        self.org_search = YaMapOrg()
         self.initUi()
         self.update_image()
 
@@ -186,6 +257,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_reset.clicked.connect(self.reset_search)
         self.checkBox_add_index.clicked.connect(self.update_address)
         self.label_map.lclicked.connect(self.search_point)
+        self.label_map.rclicked.connect(self.search_org)
 
     def search_point(self, coords):
         ll = self.map.coords_to_ll(coords)
@@ -193,6 +265,20 @@ class MainWindow(QtWidgets.QMainWindow):
         point = YaMapPoint(ll, "comma")
         self.map.set_points((point,))
         self.update_address()
+        self.update_image()
+
+    def search_org(self, coords):
+        self.reset_search()
+        request = self.lineEdit_org_request.text()
+        if not request:
+            return
+        ll = self.map.coords_to_ll(coords)
+        self.org_search.search_ll(ll, request)
+        point = self.org_search.get_point(50, "comma")
+        if not point:
+            return
+        self.map.set_points((point,))
+        self.update_org()
         self.update_image()
 
     def keyPressEvent(self, event):
@@ -261,7 +347,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def reset_search(self):
         self.map.set_points(())
         self.lineEdit_address.clear()
+        self.lineEdit_org.clear()
         self.update_image()
+
+    def update_org(self):
+        name = self.org_search.get_name(50)
+        if not name:
+            return
+        address = self.org_search.get_address(50)
+        self.lineEdit_address.setText(address)
+        self.lineEdit_org.setText(name)
 
     def update_image(self):
         filename = self.map.save_image("map", self.map_autopos)
